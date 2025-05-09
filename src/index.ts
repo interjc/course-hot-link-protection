@@ -1,4 +1,4 @@
-const ALLOWED = ['interjc.net'];
+const ALLOWED = ['app.justincourse.com', 'interjc.net'];
 export default {
   async fetch(request) {
     const ref = new URL(request.headers.get('Referer')||'').hostname;
