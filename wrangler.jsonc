@@ -22,7 +22,7 @@
 	 * databases, object storage, AI inference, real-time communication and more.
 	 * https://developers.cloudflare.com/workers/runtime-apis/bindings/
 	 */
-	"r2_buckets": [{ "binding": "VIDEO", "bucket_name": "webcourses" }]]
+	"r2_buckets": [{ "binding": "VIDEO", "bucket_name": "webcourses" }]
 
 
 	/**
