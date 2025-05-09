@@ -3,51 +3,71 @@ const ALLOWED = new Set([
   'justincourse.com', 
   'interjc.net'
 ]);
-const CORP_POLICY = 'same-site';
-const BUCKET = 'MEDIA';
+const CORP    = 'same-site';     // same-origin 也行
+const BUCKET  = 'MEDIA';         // 对应 wrangler 的 r2_buckets 绑定名
 
 export default {
-  async fetch(req, env) {
-    // 1) 简单 Referer 检查
-    const refHost = new URL(req.headers.get('Referer') || 'http://_').hostname;
-    if (!ALLOWED.has(refHost)) return new Response('blocked', { status: 403 });
+  async fetch(request: Request, env: Env) {
 
-    // 2) 解析对象 Key
-    const key = decodeURIComponent(new URL(req.url).pathname.slice(1));
+    /* 0. 读取 Referer 并做白名单校验 */
+    const refererHeader = request.headers.get('Referer') || '';
+    const refererHost   = refererHeader ? new URL(refererHeader).hostname : '';
+    const refererOrigin = refererHeader ? new URL(refererHeader).origin   : '';
+
+    if (!ALLOWED.has(refererHost)) {
+      return new Response('blocked', { status: 403 });
+    }
+
+    /* 0-bis. 预检请求（极少数场景，但写上更完整） */
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin':  refererOrigin,
+          'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+          'Access-Control-Allow-Headers': 'Range',
+          'Access-Control-Max-Age':       '86400'
+        }
+      });
+    }
+
+    /* 1. 解析对象 Key */
+    const url = new URL(request.url);
+    const key = decodeURIComponent(url.pathname.slice(1));
     if (!key) return new Response('bad request', { status: 400 });
 
-    // 3) 处理 Range 头（视频播放器常用）
-    let options = {};
-    const range = req.headers.get('Range');
+    /* 2. 处理 Range（播放器基本都会带） */
+    const range = request.headers.get('Range');
+    let opts: R2GetOptions | undefined;
     if (range) {
       const m = /bytes=(\d+)-(\d*)/.exec(range);
       if (m) {
-        const [ , start, end ] = m;
-        options.range = { offset: +start, length: end ? (+end - +start + 1) : undefined };
+        const [ , s, e ] = m;
+        opts = { range: { offset: +s, length: e ? (+e - +s + 1) : undefined }};
       }
     }
 
-    // 4) 读取 R2
-    const obj = await env.MEDIA.get(key, options);
+    /* 3. 读取 R2 */
+    const obj = await env[BUCKET].get(key, opts);
     if (!obj) return new Response('404', { status: 404 });
 
-    // 5) 组装响应（含 CORP 头，阻断跨站 <video>）
-    const headers = new Headers(obj.httpMetadata);
-    headers.set('Cross-Origin-Resource-Policy', CORP_POLICY);
+    /* 4. 生成响应 + CORS/CORP 头 */
+    const h = new Headers(obj.httpMetadata);
+    h.set('Cross-Origin-Resource-Policy', CORP);
+    h.set('Access-Control-Allow-Origin',  refererOrigin);
+    h.set('Vary',                         'Origin');          // 避免缓存污染
+    h.set('Access-Control-Expose-Headers','Content-Length, Content-Range, Accept-Ranges');
 
-    if (ref) {
-      headers.set('Access-Control-Allow-Origin', new URL(ref).origin);
-      headers.set('Vary', 'Origin');
-    }
-
-    if (range) {
+    if (range && opts?.range) {
       const size   = obj.size;
-      const start  = options.range.offset;
-      const endPos = options.range.length ? start + options.range.length - 1 : size - 1;
-      headers.set('Accept-Ranges', 'bytes');
-      headers.set('Content-Range', `bytes ${start}-${endPos}/${size}`);
-      return new Response(obj.body, { status: 206, headers });
+      const start  = opts.range.offset;
+      const endPos = opts.range.length ? start + opts.range.length - 1 : size - 1;
+      h.set('Accept-Ranges', 'bytes');
+      h.set('Content-Range', `bytes ${start}-${endPos}/${size}`);
+      return new Response(obj.body, { status: 206, headers: h });
     }
-    return new Response(obj.body, { headers });
+
+    return new Response(obj.body, { headers: h });
   }
 }
+
