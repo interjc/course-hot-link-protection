@@ -3,6 +3,8 @@ const ALLOWED = new Set([
   'justincourse.com', 
   'interjc.net'
 ]);
+const CORP_POLICY = 'same-site';
+const BUCKET = 'MEDIA';
 
 export default {
   async fetch(req, env) {
@@ -31,7 +33,13 @@ export default {
 
     // 5) 组装响应（含 CORP 头，阻断跨站 <video>）
     const headers = new Headers(obj.httpMetadata);
-    headers.set('Cross-Origin-Resource-Policy', 'same-site');
+    headers.set('Cross-Origin-Resource-Policy', CORP_POLICY);
+
+    if (ref) {
+      headers.set('Access-Control-Allow-Origin', new URL(ref).origin);
+      headers.set('Vary', 'Origin');
+    }
+
     if (range) {
       const size   = obj.size;
       const start  = options.range.offset;
