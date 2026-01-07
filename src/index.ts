@@ -1,5 +1,7 @@
 const ALLOWED = new Set([
   'app.justincourse.com',
+  'web.justincourse.com',
+  'dev.justincourse.com',
   'justincourse.com', 
   'interjc.net'
 ]);
