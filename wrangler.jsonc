@@ -22,14 +22,17 @@
 	 * databases, object storage, AI inference, real-time communication and more.
 	 * https://developers.cloudflare.com/workers/runtime-apis/bindings/
 	 */
-	"r2_buckets": [{ "binding": "MEDIA", "bucket_name": "courses" }]
+	"r2_buckets": [{ "binding": "MEDIA", "bucket_name": "courses" }],
 
 
 	/**
 	 * Environment Variables
 	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
 	 */
-	// "vars": { "MY_VARIABLE": "production_value" },
+	"vars": {
+		"EDGE_CACHE_ENABLED": "true",
+		"CACHE_TTL_SECONDS": "86400"
+	},
 	/**
 	 * Note: Use secrets to store sensitive data.
 	 * https://developers.cloudflare.com/workers/configuration/secrets/
