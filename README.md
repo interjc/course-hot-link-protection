@@ -41,13 +41,13 @@ This differs from public R2-domain proxy examples: the Worker talks to R2 throug
 
 ```bash
 curl -I \
-  -H 'Referer: https://app.justincourse.com/' \
-  https://cdn.example.com/path/to/video.mp4
+  -H 'Referer: https://justincourse.com/' \
+  https://cdn.justincourse.com/path/to/video.mp4
 
 curl -I \
-  -H 'Referer: https://app.justincourse.com/' \
+  -H 'Referer: https://justincourse.com/' \
   -H 'Range: bytes=0-1023' \
-  https://cdn.example.com/path/to/video.mp4
+  https://cdn.justincourse.com/path/to/video.mp4
 ```
 
 Expected headers include `Accept-Ranges`, `Access-Control-Allow-Origin`, `Content-Length`, and `X-Edge-Cache`.
