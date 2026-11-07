@@ -4,6 +4,8 @@ interface __BaseEnv_Env {
 	MEDIA: R2Bucket;
 	EDGE_CACHE_ENABLED: "true";
 	CACHE_TTL_SECONDS: "86400";
+	MANIFEST_CACHE_TTL_SECONDS: "300";
+	SEGMENT_CACHE_TTL_SECONDS: "2592000";
 }
 declare namespace Cloudflare {
 	interface GlobalProps {

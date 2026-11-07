@@ -10,16 +10,40 @@ const ALLOWED_HOSTS = new Set([
 
 const CORP = 'same-site';
 const DEFAULT_CACHE_TTL_SECONDS = 60 * 60 * 24;
+const DEFAULT_MANIFEST_CACHE_TTL_SECONDS = 60 * 5;
+const DEFAULT_SEGMENT_CACHE_TTL_SECONDS = 60 * 60 * 24 * 30;
 const CACHEABLE_STATUS = 200;
+const HLS_MANIFEST_EXTENSIONS = new Set(['.m3u8']);
+const HLS_SEGMENT_EXTENSIONS = new Set([
+  '.ts',
+  '.m4s',
+  '.mp4',
+  '.aac',
+  '.vtt',
+  '.webvtt',
+]);
 
-type WorkerEnv = Omit<Env, 'CACHE_TTL_SECONDS' | 'EDGE_CACHE_ENABLED'> & {
+type WorkerEnv = Omit<
+  Env,
+  'CACHE_TTL_SECONDS'
+  | 'EDGE_CACHE_ENABLED'
+  | 'MANIFEST_CACHE_TTL_SECONDS'
+  | 'SEGMENT_CACHE_TTL_SECONDS'
+> & {
   MEDIA: R2Bucket;
   CACHE_TTL_SECONDS?: number | string;
+  MANIFEST_CACHE_TTL_SECONDS?: number | string;
+  SEGMENT_CACHE_TTL_SECONDS?: number | string;
   EDGE_CACHE_ENABLED?: boolean | string;
 };
 
 type AccessContext = {
   origin: string;
+};
+
+type CachePolicy = {
+  ttl: number;
+  overrideCacheControl: boolean;
 };
 
 export default {
@@ -77,7 +101,7 @@ async function handleRequest(
   }
 
   const cacheEnabled = isEdgeCacheEnabled(env.EDGE_CACHE_ENABLED);
-  const cacheTtl = positiveInt(env.CACHE_TTL_SECONDS, DEFAULT_CACHE_TTL_SECONDS);
+  const cachePolicy = cachePolicyForKey(key, env);
   const cache = caches.default;
   const cacheKey = createCacheKeyRequest(request, key, true);
 
@@ -94,7 +118,7 @@ async function handleRequest(
       return new Response('404', { status: 404 });
     }
 
-    const headers = objectHeaders(obj, cacheTtl);
+    const headers = objectHeaders(obj, cachePolicy);
     headers.set('Content-Length', String(obj.size));
     return finalizeResponse(new Response(null, { headers }), access, true, 'BYPASS');
   }
@@ -118,7 +142,7 @@ async function handleRequest(
     return new Response('404', { status: 404 });
   }
 
-  const headers = objectHeaders(obj, cacheTtl);
+  const headers = objectHeaders(obj, cachePolicy);
   let status = CACHEABLE_STATUS;
 
   if (rangeHeader) {
@@ -142,7 +166,7 @@ async function handleRequest(
 
   const originResponse = new Response(obj.body, { status, headers });
 
-  if (cacheEnabled && status === CACHEABLE_STATUS && cacheTtl > 0) {
+  if (cacheEnabled && status === CACHEABLE_STATUS && cachePolicy.ttl > 0) {
     const cacheWriteKey = createCacheKeyRequest(request, key, false);
     ctx.waitUntil(cache.put(cacheWriteKey, originResponse.clone()).catch((error) => {
       console.warn(JSON.stringify({
@@ -215,7 +239,7 @@ function createCacheKeyRequest(request: Request, key: string, includeRange: bool
   return new Request(url.toString(), { method: 'GET', headers });
 }
 
-function objectHeaders(obj: R2Object, cacheTtl: number): Headers {
+function objectHeaders(obj: R2Object, cachePolicy: CachePolicy): Headers {
   const headers = new Headers();
   obj.writeHttpMetadata(headers);
 
@@ -227,11 +251,54 @@ function objectHeaders(obj: R2Object, cacheTtl: number): Headers {
   headers.set('ETag', obj.httpEtag);
   headers.set('Last-Modified', obj.uploaded.toUTCString());
 
-  if (!headers.has('Cache-Control') && cacheTtl > 0) {
-    headers.set('Cache-Control', `public, max-age=${cacheTtl}`);
+  if (
+    cachePolicy.ttl > 0
+    && (cachePolicy.overrideCacheControl || !headers.has('Cache-Control'))
+  ) {
+    headers.set('Cache-Control', cacheControlForTtl(cachePolicy.ttl));
   }
 
   return headers;
+}
+
+function cachePolicyForKey(key: string, env: WorkerEnv): CachePolicy {
+  const extension = extensionForKey(key);
+
+  if (HLS_MANIFEST_EXTENSIONS.has(extension)) {
+    return {
+      ttl: positiveInt(env.MANIFEST_CACHE_TTL_SECONDS, DEFAULT_MANIFEST_CACHE_TTL_SECONDS),
+      overrideCacheControl: true,
+    };
+  }
+
+  if (HLS_SEGMENT_EXTENSIONS.has(extension)) {
+    return {
+      ttl: positiveInt(env.SEGMENT_CACHE_TTL_SECONDS, DEFAULT_SEGMENT_CACHE_TTL_SECONDS),
+      overrideCacheControl: true,
+    };
+  }
+
+  return {
+    ttl: positiveInt(env.CACHE_TTL_SECONDS, DEFAULT_CACHE_TTL_SECONDS),
+    overrideCacheControl: false,
+  };
+}
+
+function extensionForKey(key: string): string {
+  const basename = key.split('/').pop() ?? '';
+  const index = basename.lastIndexOf('.');
+
+  return index >= 0 ? basename.slice(index).toLowerCase() : '';
+}
+
+function cacheControlForTtl(cacheTtl: number): string {
+  const directives = [`public`, `max-age=${cacheTtl}`];
+
+  if (cacheTtl >= DEFAULT_CACHE_TTL_SECONDS) {
+    directives.push('immutable');
+  }
+
+  return directives.join(', ');
 }
 
 function withAccessHeaders(headers: Headers, access: AccessContext): Headers {
